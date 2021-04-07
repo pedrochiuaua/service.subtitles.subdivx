@@ -4,7 +4,7 @@
 # comments
 # Port to XBMC 13 Gotham subtitles infrastructure: cramm, Mar 2014
 
-from __future__ import print_function
+
 from json import loads
 import os
 from os.path import join as pjoin
@@ -19,9 +19,10 @@ except Exception:
 import sys
 import tempfile
 from unicodedata import normalize
-from urllib import unquote, quote_plus, urlencode, quote
-import urllib2
-from urlparse import parse_qs, urlsplit, urlunsplit
+from urllib.parse import unquote, quote_plus, urlencode, quote
+import urllib.request, urllib.error, urllib.parse
+from urllib.parse import parse_qs, urlsplit, urlunsplit
+import unicodedata
 
 try:
     import xbmc
@@ -35,8 +36,7 @@ except ImportError:
                   "unit tests.\n")
             sys.exit(1)
 else:
-    from xbmc import (LOGDEBUG, LOGINFO, LOGNOTICE, LOGWARNING, LOGERROR,
-                      LOGSEVERE, LOGFATAL, LOGNONE)
+    from xbmc import (LOGDEBUG, LOGINFO, LOGWARNING, LOGERROR, LOGFATAL, LOGNONE)
     import xbmcaddon
     import xbmcgui
     import xbmcplugin
@@ -52,8 +52,8 @@ __scriptname__ = __addon__.getAddonInfo('name')
 __version__    = '0.3.7'
 __language__   = __addon__.getLocalizedString
 
-__cwd__        = xbmc.translatePath(__addon__.getAddonInfo('path')).decode("utf-8")
-__profile__    = xbmc.translatePath(__addon__.getAddonInfo('profile')).decode("utf-8")
+__cwd__        = xbmcvfs.translatePath(__addon__.getAddonInfo('path'))
+__profile__    = xbmcvfs.translatePath(__addon__.getAddonInfo('profile'))
 
 
 MAIN_SUBDIVX_URL = "https://www.subdivx.com/"
@@ -136,9 +136,9 @@ def is_compressed_file(fname=None, contents=None):
         contents = open(fname, 'rb').read()
     assert len(contents) > 4
     header = contents[:4]
-    if header == 'Rar!':
+    if header == b'Rar!':
         compression_type = 'RAR'
-    elif header == 'PK\x03\x04':
+    elif header == b'PK\x03\x04':
         compression_type = 'ZIP'
     else:
         compression_type = None
@@ -147,23 +147,23 @@ def is_compressed_file(fname=None, contents=None):
 
 def log(msg, level=LOGDEBUG):
     fname = sys._getframe(1).f_code.co_name
-    s = u"SUBDIVX - %s: %s" % (fname, msg)
-    xbmc.log(s.encode('utf-8'), level=level)
+    s = "SUBDIVX - %s: %s" % (fname, msg)
+    xbmc.log(s, level=level)
 
 
 def get_url(url):
-    req = urllib2.Request(url)
+    req = urllib.request.Request(url)
     req.add_header("User-Agent", HTTP_USER_AGENT)
-    log(u"Fetching %s" % url)
+    log("Fetching %s" % url)
     try:
-        response = urllib2.urlopen(req)
+        response = urllib.request.urlopen(req)
         content = response.read()
-    except urllib2.HTTPError as e:
-        log(u"Failed to fetch %s (HTTP status: %d)" % (url, e.code), level=LOGWARNING)
-    except urllib2.URLError as e:
-        log(u"Failed to fetch %s (URL error %s)" % (url, e.reason), level=LOGWARNING)
+    except urllib.error.HTTPError as e:
+        log("Failed to fetch %s (HTTP status: %d)" % (url, e.code), level=LOGWARNING)
+    except urllib.error.URLError as e:
+        log("Failed to fetch %s (URL error %s)" % (url, e.reason), level=LOGWARNING)
     except Exception as e:
-        log(u"Failed to fetch %s (generic error %s)" % (url, e), level=LOGWARNING)
+        log("Failed to fetch %s (generic error %s)" % (url, e), level=LOGWARNING)
     else:
         return content
     return None
@@ -194,9 +194,9 @@ def build_subdivx_url(qs_dict):
     )
     return urlunsplit(mod_parts)
 
-
+# Here on SUBTITLE_RE Lines 208, 213,221, 241
 def process_page(page_nr, srch_param_name, srch_str, file_orig_path):
-    log(u"Trying page %d" % page_nr)
+    log("Trying page %d" % page_nr)
     qs_dict = QS_DICT.copy()
     qs_dict[srch_param_name] = srch_str
     if page_nr > 1:
@@ -205,12 +205,12 @@ def process_page(page_nr, srch_param_name, srch_str, file_orig_path):
     content = get_url(url)
     if content is None:
         return [], set()
-    if not SUBTITLE_RE.search(content):
-        log(u"No subtitle link regexp match found in page contents", level=LOGSEVERE)
+    if not SUBTITLE_RE.search(content.decode('utf-8', 'ignore')):
+        log("No subtitle link regexp match found in page contents", level=LOGFATAL)
         return [], set()
     subs = []
     descriptions = []
-    for counter, match in enumerate(SUBTITLE_RE.finditer(content)):
+    for counter, match in enumerate(SUBTITLE_RE.finditer(content.decode('utf-8', 'ignore'))):
         groups = match.groupdict()
 
         subdivx_id = groups['subdivx_id']
@@ -218,7 +218,7 @@ def process_page(page_nr, srch_param_name, srch_str, file_orig_path):
         dls = re.sub(r'[,.]', '', groups['downloads'])
         downloads = int(dls)
 
-        raw_desc = groups['comment'].decode(PAGE_ENCODING)
+        raw_desc = groups['comment']
         descriptions.append(raw_desc)
         descr = cleanup_subdivx_comment(raw_desc)
 
@@ -231,14 +231,14 @@ def process_page(page_nr, srch_param_name, srch_str, file_orig_path):
 
         try:
             if not counter:
-                log(u'Subtitles found for subdivx_id = %s:' % subdivx_id)
-            log(u'"%s"' % descr)
+                log('Subtitles found for subdivx_id = %s:' % subdivx_id)
+            log('"%s"' % descr)
         except Exception:
             pass
         item = {
             'descr': descr,
             'sync': sync,
-            'subdivx_id': subdivx_id.decode(PAGE_ENCODING),
+            'subdivx_id': subdivx_id,
             'uploader': groups['uploader'],
             'downloads': downloads,
             'score': int(groups['calif']),
@@ -293,7 +293,7 @@ def compute_ratings(subs_list):
             sub['rating'] = int((sub['downloads'] / float(max_dl_count)) * 5)
         else:
             sub['rating'] = 0
-    log(u"subs_list = %s" % pformat(subs_list))
+    log("subs_list = %s" % pformat(subs_list))
 
 
 def append_subtitle(item, filename):
@@ -370,7 +370,7 @@ def build_tvshow_searchstring(item):
 
 def action_search(item):
     """Called when subtitle download is requested from XBMC."""
-    log(u'item = %s' % pformat(item))
+    log('item = %s' % pformat(item))
     # Do what's needed to get the list of subtitles from service site
     # use item["some_property"] that was set earlier.
     # Once done, set xbmcgui.ListItem() below and pass it to
@@ -383,7 +383,7 @@ def action_search(item):
         searchstring = build_tvshow_searchstring(item)
     else:
         searchstring = '%s%s' % (item['title'], ' (%s)' % item['year'].strip('()') if item.get('year') else '')
-    log(u"Search string = %s" % searchstring)
+    log("Search string = %s" % searchstring)
 
     cache_ttl_value = __addon__.getSetting('cache_ttl')
     try:
@@ -413,22 +413,22 @@ def _handle_compressed_subs(workdir, compressed_file, ext):
             fsrc = '%s%s' % (src, cfile)
             xbmcvfs.copy(fsrc, workdir + cfile)
     else:
-        xbmc.executebuiltin("XBMC.Extract(%s, %s)" % (
-                            compressed_file.encode("utf-8"),
-                            workdir.encode("utf-8")), True)
+        xbmc.executebuiltin("Extract(%s, %s)" % (
+                            compressed_file,
+                            workdir), True)
 
     files = os.listdir(workdir)
     files = [f for f in files if is_subs_file(f)]
     found_files = []
     for fname in files:
-        if not isinstance(fname, unicode):
-            fname = fname.decode('utf-8')
+        if not isinstance(fname, str):
+            fname = fname
         found_files.append({
             'forced': is_forced_subs_file(fname),
             'path': pjoin(workdir, fname)
         })
     if not found_files:
-        log(u"Failed to unpack subtitles", level=LOGSEVERE)
+        log("Failed to unpack subtitles", level=LOGFATAL)
     return found_files
 
 
@@ -445,12 +445,12 @@ def _save_subtitles(workdir, content):
     # Assume unpacked sub file is a '.srt'
     cfext = {'RAR': 'rar', 'ZIP': 'zip'}.get(ctype, 'srt')
     tmp_fname = pjoin(workdir, "subdivx." + cfext)
-    log(u"Saving subtitles to '%s'" % tmp_fname)
+    log("Saving subtitles to '%s'" % tmp_fname)
     try:
         with open(tmp_fname, "wb") as fh:
             fh.write(content)
     except Exception:
-        log(u"Failed to save subtitles to '%s'" % tmp_fname, level=LOGSEVERE)
+        log("Failed to save subtitles to '%s'" % tmp_fname, level=LOGFATAL)
         return []
     else:
         if is_compressed:
@@ -484,22 +484,22 @@ def action_download(subdivx_id, workdir):
     # Fetch and scrape [new] intermediate page
     html_content = get_url(subtitle_detail_url)
     if html_content is None:
-        log(u"No content found in selected subtitle intermediate detail/final download page",
+        log("No content found in selected subtitle intermediate detail/final download page",
             level=LOGFATAL)
         return []
-    match = DETAIL_PAGE_LINK_RE.search(html_content)
+    match = DETAIL_PAGE_LINK_RE.search(html_content.decode('utf-8', 'ignore'))
     if match is None:
-        log(u"Intermediate detail page for selected subtitle or expected content not found. Handling it as final download page")
+        log("Intermediate detail page for selected subtitle or expected content not found. Handling it as final download page")
     else:
         id_ = match.group('id')
         # Fetch and scrape final page
         html_content = get_url(MAIN_SUBDIVX_URL + id_)
     if html_content is None:
-        log(u"No content found in final download page", level=LOGFATAL)
+        log("No content found in final download page", level=LOGFATAL)
         return []
-    match = DOWNLOAD_LINK_RE.search(html_content)
+    match = DOWNLOAD_LINK_RE.search(html_content.decode('utf-8', 'ignore'))
     if match is None:
-        log(u"Expected content not found in final download page", level=LOGFATAL)
+        log("Expected content not found in final download page", level=LOGFATAL)
         return []
     id_, u = match.group('id', 'u')
     methods = [
@@ -512,7 +512,7 @@ def action_download(subdivx_id, workdir):
             saved_fnames = _save_subtitles(workdir, content)
             break
     else:
-        log(u"Got no content when downloading actual subtitle file", level=LOGFATAL)
+        log("Got no content when downloading actual subtitle file", level=LOGFATAL)
         return []
     return saved_fnames
 
@@ -520,7 +520,7 @@ def action_download(subdivx_id, workdir):
 def _double_dot_fix_hack(video_filename):
     """Corrects filename of downloaded subtitle from Foo-Blah..srt to Foo-Blah.es.srt"""
 
-    log(u"video_filename = %s" % video_filename)
+    log("video_filename = %s" % video_filename)
 
     work_path = video_filename
     if _subtitles_setting('storagemode'):
@@ -529,19 +529,19 @@ def _double_dot_fix_hack(video_filename):
             _, fname = os.path.split(video_filename)
             work_path = pjoin(custom_subs_path, fname)
 
-    log(u"work_path = %s" % work_path)
-    parts = work_path.rsplit('.', 1)
+    log("work_path = %s" % work_path)
+    parts = work_path.decode('utf-8').rsplit('.', 1)
     if len(parts) > 1:
         rest = parts[0]
         for ext in ('srt', 'ssa', 'sub', 'idx'):
             bad = rest + '..' + ext
             old = rest + '.es.' + ext
             if xbmcvfs.exists(bad):
-                log(u"%s exists" % bad)
+                log("%s exists" % bad)
                 if xbmcvfs.exists(old):
-                    log(u"%s exists, removing" % old)
+                    log("%s exists, removing" % old)
                     xbmcvfs.delete(old)
-                log(u"renaming %s to %s" % (bad, old))
+                log("renaming %s to %s" % (bad, old))
                 xbmcvfs.rename(bad, old)
 
 
@@ -566,8 +566,7 @@ def _subtitles_setting(name):
 
 
 def normalize_string(str):
-    return normalize('NFKD', unicode(unicode(str, 'utf-8'))).encode('ascii',
-                                                                    'ignore')
+    return unicodedata.normalize('NFKD', str)
 
 
 def get_params(argv):
@@ -577,7 +576,7 @@ def get_params(argv):
         if qs.endswith('/'):
             qs = qs[:-1]
         parsed = parse_qs(qs)
-        for k, v in parsed.iteritems():
+        for k, v in parsed.items():
             params[k] = v[0]
     return params
 
@@ -592,7 +591,7 @@ def _cleanup_tempdir(dir_path, verbose=False):
         shutil.rmtree(dir_path, ignore_errors=True)
     except Exception:
         if verbose:
-            log(u"Failed to remove %s" % dir_path, level=LOGWARNING)
+            log("Failed to remove %s" % dir_path, level=LOGWARNING)
         return False
     return True
 
@@ -604,7 +603,7 @@ def _cleanup_tempdirs(profile_path):
         result = _cleanup_tempdir(os.path.join(profile_path, dir_path), verbose=False)
         if result:
             ok += 1
-    log(u"Results: %d of %d dirs removed" % (ok, total + 1), level=LOGDEBUG)
+    log("Results: %d of %d dirs removed" % (ok, total + 1), level=LOGDEBUG)
 
 
 def sleep(secs):
@@ -621,7 +620,7 @@ def main():
     # Get parameters from XBMC and launch actions
     params = get_params(sys.argv)
     action = params.get('action', 'Unknown')
-    xbmc.log(u"SUBDIVX - Version: %s -- Action: %s" % (__version__, action), level=LOGNOTICE)
+    xbmc.log("SUBDIVX - Version: %s -- Action: %s" % (__version__, action), level=LOGINFO)
     kodi_major_version = int(xbmc.getInfoLabel('System.BuildVersion').split('.')[0])
 
     if action in ('search', 'manualsearch'):
@@ -635,7 +634,7 @@ def main():
             # Try to get original title
             'title': normalize_string(xbmc.getInfoLabel("VideoPlayer.OriginalTitle")),
             # Full path of a playing file
-            'file_original_path': unquote(xbmc.Player().getPlayingFile().decode('utf-8')),
+            'file_original_path': unquote(xbmc.Player().getPlayingFile()),
             '3let_language': [],
             '2let_language': [],
             'manual_search': 'searchstring' in params,
@@ -644,7 +643,7 @@ def main():
         if 'searchstring' in params:
             item['manual_search_string'] = params['searchstring']
 
-        for lang in unquote(params['languages']).decode('utf-8').split(","):
+        for lang in unquote(params['languages']).split(","):
             item['3let_language'].append(xbmc.convertLanguage(lang, xbmc.ISO_639_2))
             item['2let_language'].append(xbmc.convertLanguage(lang, xbmc.ISO_639_1))
 
@@ -673,8 +672,8 @@ def main():
         xbmcplugin.endOfDirectory(int(sys.argv[1]))
 
     elif action == 'download':
-        debug_dump_path(xbmc.translatePath(__addon__.getAddonInfo('profile')),
-                        "xbmc.translatePath(__addon__.getAddonInfo('profile'))")
+        debug_dump_path(xbmcvfs.translatePath(__addon__.getAddonInfo('profile')),
+                        "xbmcvfs.translatePath(__addon__.getAddonInfo('profile'))")
         debug_dump_path(__profile__, '__profile__')
         xbmcvfs.mkdirs(__profile__)
         _cleanup_tempdirs(__profile__)
