@@ -194,7 +194,6 @@ def build_subdivx_url(qs_dict):
     )
     return urlunsplit(mod_parts)
 
-# Here on SUBTITLE_RE Lines 208, 213,221, 241
 def process_page(page_nr, srch_param_name, srch_str, file_orig_path):
     log("Trying page %d" % page_nr)
     qs_dict = QS_DICT.copy()
@@ -421,8 +420,6 @@ def _handle_compressed_subs(workdir, compressed_file, ext):
     files = [f for f in files if is_subs_file(f)]
     found_files = []
     for fname in files:
-        if not isinstance(fname, str):
-            fname = fname
         found_files.append({
             'forced': is_forced_subs_file(fname),
             'path': pjoin(workdir, fname)
@@ -530,7 +527,7 @@ def _double_dot_fix_hack(video_filename):
             work_path = pjoin(custom_subs_path, fname)
 
     log("work_path = %s" % work_path)
-    parts = work_path.decode('utf-8').rsplit('.', 1)
+    parts = work_path.decode('utf-8', 'ignore').rsplit('.', 1)
     if len(parts) > 1:
         rest = parts[0]
         for ext in ('srt', 'ssa', 'sub', 'idx'):
