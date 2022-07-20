@@ -151,8 +151,8 @@ def log(msg, level=LOGDEBUG):
     xbmc.log(s, level=level)
 
 
-def get_url(url):
-    req = urllib.request.Request(url)
+def get_url(url, data=None):
+    req = urllib.request.Request(url, data)
     req.add_header("User-Agent", HTTP_USER_AGENT)
     log("Fetching %s" % url)
     try:
@@ -182,7 +182,7 @@ def cleanup_subdivx_comment(comment):
     clean_text = re.sub('\n', ' ', clean_text)
     return clean_text.rstrip(' \t')
 
-
+"""
 def build_subdivx_url(qs_dict):
     parts = urlsplit(SEARCH_PAGE_URL)
     mod_parts = (
@@ -193,15 +193,16 @@ def build_subdivx_url(qs_dict):
         parts.fragment
     )
     return urlunsplit(mod_parts)
-
+"""
 def process_page(page_nr, srch_param_name, srch_str, file_orig_path):
     log("Trying page %d" % page_nr)
     qs_dict = QS_DICT.copy()
     qs_dict[srch_param_name] = srch_str
     if page_nr > 1:
         qs_dict[QS_KEY_PAGE] = str(page_nr)
-    url = build_subdivx_url(qs_dict)
-    content = get_url(url)
+    url = SEARCH_PAGE_URL
+    data = urllib.parse.urlencode(qs_dict).encode()
+    content = get_url(url, data)
     if content is None:
         return [], set()
     if not SUBTITLE_RE.search(content.decode('utf-8', 'ignore')):
