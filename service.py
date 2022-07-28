@@ -407,7 +407,7 @@ def _handle_compressed_subs(workdir, compressed_file, ext):
     Uncompress 'compressed_file' in 'workdir'.
     """
     if ext == 'rar' and kodi_major_version >= 18:
-        src = 'archive' + '://' + quote_plus(compressed_file) + '/'
+        src = 'rar' + '://' + quote_plus(compressed_file) + '/'
         (cdirs, cfiles) = xbmcvfs.listdir(src)
         for cfile in cfiles:
             fsrc = '%s%s' % (src, cfile)
